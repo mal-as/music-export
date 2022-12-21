@@ -2,4 +2,4 @@ module github.com/mal-as/music-export
 
 go 1.19
 
-require github.com/joho/godotenv v1.4.0 // indirect
+require github.com/joho/godotenv v1.4.0
