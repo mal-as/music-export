@@ -2,71 +2,91 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-
-	"github.com/mal-as/music-export/pkg/apple_music"
+	"sync"
 
 	"github.com/joho/godotenv"
+
+	"github.com/mal-as/music-export/pkg/apple_music"
+	"github.com/mal-as/music-export/pkg/yandex_music"
 )
 
 func main() {
-	var name string
-	flag.StringVar(&name, "name", "", "name of the track")
-	flag.Parse()
-
-	if name == "" {
-		log.Fatal("no track name was specified")
-	}
-
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatalf("Load: %s", err)
 	}
-
 	ctx := context.Background()
 	client := &http.Client{}
-	cfg := apple_music.Config{
+	amCFG := apple_music.Config{
 		AuthToken:      os.Getenv("APPLE_MUSIC_AUTH_TOKEN"),
 		MediaUserToken: os.Getenv("APPLE_MUSIC_MEDIA_USER_TOKEN"),
 		Origin:         apple_music.Origin,
 		BaseURL:        apple_music.BaseURL,
 	}
+	am := apple_music.NewTracksProvider(amCFG, client)
 
-	tp := apple_music.NewTracksProvider(cfg, client)
+	ymCFG := yandex_music.Config{
+		UserID:     os.Getenv("YANDEX_MUSIC_USER_ID"),
+		PlaylistID: os.Getenv("YANDEX_MUSIC_PLAYLIST_ID"),
+		AuthToken:  os.Getenv("YANDEX_MUSIC_AUTH_TOKEN"),
+	}
+	ym := yandex_music.NewPlayListProvider(client, ymCFG)
 
-	resp, err := tp.FindByName(ctx, name)
+	tracks, err := ym.GetTracks(ctx)
 	if err != nil {
-		log.Fatalf("FindByName: %s", err)
+		log.Fatalf("GetTracks: %s", err)
+	}
+
+	if len(tracks) == 0 {
+		log.Fatal("no tracks were found")
+	}
+
+	fmt.Printf("found %d tracks\n", len(tracks))
+
+	sema := make(chan struct{}, 10)
+	var wg sync.WaitGroup
+
+	for _, track := range tracks {
+		sema <- struct{}{}
+		wg.Add(1)
+
+		go func(track *yandex_music.Track) {
+			defer wg.Done()
+			defer func() { <-sema }()
+
+			addTrackToAppleMusic(ctx, am, fmt.Sprintf("%s %s", track.Track.Artists[0].Name, track.Track.Title))
+		}(track)
+	}
+
+	wg.Wait()
+}
+
+func addTrackToAppleMusic(ctx context.Context, am *apple_music.TracksProvider, tackName string) {
+	resp, err := am.FindByName(ctx, tackName)
+	if err != nil {
+		fmt.Printf("addTrackToAppleMusic.FindByName: %s\n", err)
+		return
 	}
 
 	if len(resp.Results.Songs.Data) == 0 {
-		log.Fatal("no song was find")
+		fmt.Printf("addTrackToAppleMusic: song %s was not found\n", tackName)
+		return
 	}
 
 	trackID := resp.Results.Songs.Data[0].ID
 
-	fmt.Println("track ID: ", trackID)
+	fmt.Printf("addTrackToAppleMusic: song '%s' - track ID: %s\n", tackName, trackID)
 
-	track, err := tp.GetByID(ctx, trackID)
-	if err != nil {
-		log.Fatalf("GetTrack: %s", err)
-	}
-
-	if len(track.Data) == 0 {
-		log.Fatal("no song was got")
-	}
-
-	fmt.Printf("%s - %s\n", track.Data[0].Attributes.ArtistName, track.Data[0].Attributes.Name)
-
-	if err = tp.AddToLibrary(ctx, trackID); err != nil {
+	if err = am.AddToLibrary(ctx, trackID); err != nil {
 		if err != nil {
-			log.Fatalf("AddToLibrary: %s", err)
+			fmt.Printf("addTrackToAppleMusic.AddToLibrary: %s\n", err)
+			return
 		}
 	}
 
-	fmt.Println("success")
+	fmt.Printf("addTrackToAppleMusic: successfully added '%s'\n", tackName)
 }

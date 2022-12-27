@@ -23,22 +23,27 @@ type (
 	}
 
 	FindTrackResponse struct {
-		Results struct {
-			Songs struct {
-				Data []struct {
-					ID string `json:"id"`
-				} `json:"data"`
-			} `json:"songs"`
-		} `json:"results"`
+		Results *FindTrackResults `json:"results"`
+	}
+	FindTrackResults struct {
+		Songs *Songs `json:"songs"`
+	}
+	Songs struct {
+		Data []*Data `json:"data"`
+	}
+	Data struct {
+		ID string `json:"id"`
 	}
 
 	GetTrackResponse struct {
-		Data []struct {
-			Attributes struct {
-				Name       string `json:"name"`
-				ArtistName string `json:"artistName"`
-			} `json:"attributes"`
-		} `json:"data"`
+		Data []*TrackData `json:"data"`
+	}
+	TrackData struct {
+		Attributes *TrackAttributes `json:"attributes"`
+	}
+	TrackAttributes struct {
+		Name       string `json:"name"`
+		ArtistName string `json:"artistName"`
 	}
 )
 
